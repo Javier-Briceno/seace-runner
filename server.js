@@ -1,5 +1,6 @@
 import express from "express";
 import { chromium } from "playwright";
+import fs from "fs";
 
 const app = express();
 app.use(express.json());
@@ -49,10 +50,7 @@ app.post("/seace/export", async (req, res) => {
     const TABLE_BODY =
       "#tbBuscador\\:idFormBuscarProceso\\:dtProcesos_data";
 
-    await page.waitForSelector(
-      "#tbBuscador\\:idFormBuscarProceso\\:dtProcesos_data tr",
-      { timeout: 60000 }
-    );
+    await page.waitForSelector(TABLE_BODY, { timeout: 60000 });
 
     // Ejecutar búsqueda
     await page.click("text=Buscar");
@@ -98,10 +96,29 @@ app.post("/seace/export", async (req, res) => {
       }
     });
   } catch (err) {
+    let screenshotPath = null;
+    let htmlPath = null;
+    try {
+      await fs.promises.mkdir("debug", { recursive: true });
+      screenshotPath = `debug/${run_id}.png`;
+      htmlPath = `debug/${run_id}.html`;
+      if (page && !page.isClosed && typeof page.screenshot === "function") {
+        await page.screenshot({ path: screenshotPath, fullPage: true });
+      }
+      if (page && typeof page.content === "function") {
+        const html = await page.content();
+        await fs.promises.writeFile(htmlPath, html, "utf8");
+      }
+    } catch (dbgErr) {
+      // best-effort debug capture; don't override original error
+      console.error("debug capture failed:", String(dbgErr));
+    }
+
     await browser.close();
     return res.status(500).json({
       run_id,
-      error: String(err)
+      error: String(err),
+      debug: { screenshot: screenshotPath, html: htmlPath }
     });
   }
 });
