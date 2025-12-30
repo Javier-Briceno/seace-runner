@@ -82,35 +82,60 @@ app.post("/seace/export", async (req, res) => {
       - Año: ${anioValue}`);
 
     // 3️⃣ SETEAR FILTROS EN LA UI
-    // Los selectores PrimeFaces tienen un <select> oculto (_input)
-    // que Playwright SÍ puede manipular con selectOption()
+    // PrimeFaces NO permite selectOption() porque el <select> está oculto (display: none)
+    // Patrón correcto: Click en el contenedor visible + Click en la opción del panel abierto
 
+    // ⚠️ DEPARTAMENTO
     if (departamentos[departamento]) {
-      console.log(`[${run_id}] Seteando Departamento...`);
-      await page.selectOption(
-        '#tbBuscador\\:idFormBuscarProceso\\:departamento_input',
-        departamentos[departamento]
-      );
-      // Pequeña pausa para que PrimeFaces actualice el label
-      await page.waitForTimeout(300);
+      console.log(`[${run_id}] Seteando Departamento a "${departamento}"...`);
+      try {
+        // Click en el contenedor del dropdown para abrir el panel
+        await page.click('#tbBuscador\\:idFormBuscarProceso\\:departamento');
+        // Esperar a que el panel se abra y sea visible
+        await page.waitForSelector('.ui-selectonemenu-panel', { visible: true, timeout: 5000 });
+        // Click en la opción por su texto dentro del panel
+        await page.click(`.ui-selectonemenu-panel li:has-text("${departamento}")`);
+        // Pausa para que PrimeFaces procese el cambio
+        await page.waitForTimeout(500);
+        console.log(`[${run_id}] ✓ Departamento seteado`);
+      } catch (err) {
+        console.warn(`[${run_id}] ⚠️ Error al setear Departamento:`, err.message);
+      }
     }
 
+    // ⚠️ OBJETO DE CONTRATACIÓN
     if (objetos[objeto]) {
-      console.log(`[${run_id}] Seteando Objeto de Contratación...`);
-      await page.selectOption(
-        '#tbBuscador\\:idFormBuscarProceso\\:j_idt217_input',
-        objetos[objeto]
-      );
-      await page.waitForTimeout(300);
+      console.log(`[${run_id}] Seteando Objeto de Contratación a "${objeto}"...`);
+      try {
+        // Click en el contenedor del dropdown para abrir el panel
+        await page.click('#tbBuscador\\:idFormBuscarProceso\\:j_idt217');
+        // Esperar a que el panel se abra
+        await page.waitForSelector('.ui-selectonemenu-panel', { visible: true, timeout: 5000 });
+        // PrimeFaces muestra "Obra" (no "OBRA"), así que mapear correctamente
+        const textoOpcion = objeto === "OBRA" ? "Obra" : objeto === "BIEN" ? "Bien" : objeto === "SERVICIO" ? "Servicio" : objeto;
+        await page.click(`.ui-selectonemenu-panel li:has-text("${textoOpcion}")`);
+        await page.waitForTimeout(500);
+        console.log(`[${run_id}] ✓ Objeto de Contratación seteado`);
+      } catch (err) {
+        console.warn(`[${run_id}] ⚠️ Error al setear Objeto:`, err.message);
+      }
     }
 
+    // ⚠️ AÑO DE CONVOCATORIA
     if (anioValue) {
-      console.log(`[${run_id}] Seteando Año de Convocatoria...`);
-      await page.selectOption(
-        '#tbBuscador\\:idFormBuscarProceso\\:anioConvocatoria_input',
-        anioValue
-      );
-      await page.waitForTimeout(300);
+      console.log(`[${run_id}] Seteando Año de Convocatoria a "${anioValue}"...`);
+      try {
+        // Click en el contenedor del dropdown para abrir el panel
+        await page.click('#tbBuscador\\:idFormBuscarProceso\\:anioConvocatoria');
+        // Esperar a que el panel se abra
+        await page.waitForSelector('.ui-selectonemenu-panel', { visible: true, timeout: 5000 });
+        // Click en la opción por su texto
+        await page.click(`.ui-selectonemenu-panel li:has-text("${anioValue}")`);
+        await page.waitForTimeout(500);
+        console.log(`[${run_id}] ✓ Año de Convocatoria seteado`);
+      } catch (err) {
+        console.warn(`[${run_id}] ⚠️ Error al setear Año:`, err.message);
+      }
     }
 
     // 4️⃣ EJECUTAR BÚSQUEDA
