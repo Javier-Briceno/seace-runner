@@ -27,30 +27,67 @@ app.get("/test-outbound", async (req, res) => {
   }
 });
 
-app.post("/seace/export", auth, async (req, res) => {
-  const { departamento, objeto, anio } = req.body;
+app.post("/seace/export", async (req, res) => {
+  const run_id = new Date().toISOString();
 
-  if (!departamento || !objeto || !anio) {
-    return res.status(400).json({ error: "Missing parameters" });
-  }
+  const browser = await chromium.launch({
+    headless: true
+  });
 
-  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
 
   try {
-    const page = await browser.newPage();
+    await page.goto(
+      "https://prod2.seace.gob.pe/seacebus-uiwd-pub/buscadorPublico/buscadorPublico.xhtml",
+      { waitUntil: "domcontentloaded", timeout: 60000 }
+    );
 
-    // POR AHORA NO SCRAPEAMOS NADA
-    // solo probamos que el runner funcione
+    // ⚠️ IMPORTANTE:
+    // aquí asumo que los filtros ya están aplicados
+    // (por ahora scraping MVP)
+
+    const TABLE_BODY =
+      "#tbBuscador\\:idFormBuscarProceso\\:dtProcesos_data";
+
+    await page.waitForSelector(TABLE_BODY, { timeout: 60000 });
+
+    const items = await page.evaluate(() => {
+      const rows = document.querySelectorAll(
+        "#tbBuscador\\:idFormBuscarProceso\\:dtProcesos_data tr"
+      );
+
+      const results = [];
+
+      for (const row of rows) {
+        const cols = row.querySelectorAll("td");
+        if (cols.length < 7) continue;
+
+        results.push({
+          entidad: cols[1]?.innerText.trim(),
+          descripcion: cols[6]?.innerText.trim(),
+          nomenclatura: cols[3]?.innerText.trim()
+        });
+      }
+
+      return results;
+    });
+
+    await browser.close();
 
     return res.json({
-      run_id: new Date().toISOString(),
-      items: [],
-      meta: { departamento, objeto, anio }
+      run_id,
+      items,
+      meta: {
+        fuente: "SEACE",
+        scraped_at: run_id
+      }
     });
   } catch (err) {
-    return res.status(500).json({ error: String(err) });
-  } finally {
     await browser.close();
+    return res.status(500).json({
+      run_id,
+      error: String(err)
+    });
   }
 });
 
