@@ -49,8 +49,23 @@ app.post("/seace/export", async (req, res) => {
     const TABLE_BODY =
       "#tbBuscador\\:idFormBuscarProceso\\:dtProcesos_data";
 
-    await page.waitForSelector(TABLE_BODY, { timeout: 60000 });
+    await page.waitForSelector(
+      "#tbBuscador\\:idFormBuscarProceso\\:dtProcesos_data tr",
+      { timeout: 60000 }
+    );
 
+    // Ejecutar búsqueda
+    await page.click("text=Buscar");
+
+    // Esperar a que aparezcan filas reales
+    await page.waitForFunction(() => {
+      const rows = document.querySelectorAll(
+        "#tbBuscador\\:idFormBuscarProceso\\:dtProcesos_data tr"
+      );
+      return rows.length > 0;
+    }, { timeout: 60000 });
+
+    // Scrapear
     const items = await page.evaluate(() => {
       const rows = document.querySelectorAll(
         "#tbBuscador\\:idFormBuscarProceso\\:dtProcesos_data tr"
