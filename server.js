@@ -47,11 +47,6 @@ app.post("/seace/export", async (req, res) => {
     // aquí asumo que los filtros ya están aplicados
     // (por ahora scraping MVP)
 
-    const TABLE_BODY =
-      "#tbBuscador\\:idFormBuscarProceso\\:dtProcesos_data";
-
-    await page.waitForSelector(TABLE_BODY, { timeout: 60000 });
-
     // Ejecutar búsqueda
     await page.click("text=Buscar");
 
