@@ -18,6 +18,15 @@ app.get("/health", (req, res) => {
   res.json({ ok: true });
 });
 
+app.get("/test-outbound", async (req, res) => {
+  try {
+    const r = await fetch("https://www.google.com");
+    res.json({ ok: true, status: r.status });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
 app.post("/seace/export", auth, async (req, res) => {
   const { departamento, objeto, anio } = req.body;
 
