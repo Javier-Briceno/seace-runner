@@ -50,8 +50,21 @@ app.post("/seace/export", async (req, res) => {
     
     console.log(`[${run_id}] Filtros recibidos:`, { departamento, objeto, anio });
 
-    // Esperar a que la página esté completamente cargada
-    await page.waitForSelector('#tbBuscador\\:idFormBuscarProceso\\:departamento', { timeout: 10000 });
+    // Esperar a que los tabs carguen
+    await page.waitForSelector('.ui-tabs-nav', { timeout: 10000 });
+    
+    // Click en el tab correcto: "Buscador de Procedimientos de Selección"
+    console.log(`[${run_id}] Activando tab de búsqueda...`);
+    await page.click('a[href="#tbBuscador\\:tab1"]');
+    
+    // Esperar a que el tab esté activo y el contenido visible
+    await page.waitForTimeout(1000);
+    
+    // Esperar a que el formulario de búsqueda esté visible
+    await page.waitForSelector('#tbBuscador\\:idFormBuscarProceso\\:departamento', { 
+      state: 'visible', 
+      timeout: 10000 
+    });
 
     // SETEAR DEPARTAMENTO
     if (departamento) {
@@ -77,7 +90,7 @@ app.post("/seace/export", async (req, res) => {
     if (objeto) {
       console.log(`[${run_id}] Seteando Objeto: ${objeto}`);
       
-      await page.click('#tbBuscador\\:idFormBuscarProceso\\:j_idt217');
+      await page.click('#tbBuscador\\:idFormBuscarProceso\\:j_idt212');
       await page.waitForSelector('.ui-selectonemenu-panel:visible', { timeout: 5000 });
       await page.waitForTimeout(300);
       
