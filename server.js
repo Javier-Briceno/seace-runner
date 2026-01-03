@@ -30,167 +30,161 @@ app.get("/test-outbound", async (req, res) => {
 
 app.post("/seace/export", async (req, res) => {
   const run_id = new Date().toISOString();
-
-  const browser = await chromium.launch({
-    headless: true
-  });
-
-  const page = await browser.newPage();
+  let browser;
 
   try {
-    // 1️⃣ NAVEGACIÓN INICIAL
-    // Ir a la página de búsqueda pública de SEACE
+    browser = await chromium.launch({
+      headless: true
+    });
+
+    const page = await browser.newPage();
+
+    console.log(`[${run_id}] Navegando a SEACE...`);
+    
     await page.goto(
       "https://prod2.seace.gob.pe/seacebus-uiwd-pub/buscadorPublico/buscadorPublico.xhtml",
-      { waitUntil: "domcontentloaded", timeout: 60000 }
+      { waitUntil: "networkidle", timeout: 60000 }
     );
 
-    console.log(`[${run_id}] Página cargada. Extrayendo filtros de req.body...`);
-
-    // 2️⃣ MAPEO DE VALORES DESDE req.body
-    // Los valores llegan como texto (ej: "LA LIBERTAD", "OBRA", "2025")
-    // pero SEACE espera values numéricos o exactos del dropdown
-    
     const { departamento, objeto, anio } = req.body;
     
-    // Mapeo de departamentos (texto → value)
-    const departamentos = {
-      "LA LIBERTAD": "14",
-      "LIMA": "15",
-      "AREQUIPA": "4",
-      // ... otros valores según necesidad
-    };
+    console.log(`[${run_id}] Filtros recibidos:`, { departamento, objeto, anio });
 
-    // Mapeo de objetos (texto → value)
-    // Nota: En SEACE el texto es "Obra" (no "OBRA")
-    const objetos = {
-      "OBRA": "64",
-      "Obra": "64",
-      "BIEN": "63",
-      "Bien": "63",
-      "SERVICIO": "65",
-      "Servicio": "65",
-      // ... otros valores
-    };
+    // Esperar a que la página esté completamente cargada
+    await page.waitForSelector('#tbBuscador\\:idFormBuscarProceso\\:departamento', { timeout: 10000 });
 
-    // Año generalmente se mapea directamente
-    const anioValue = String(anio);
-
-    console.log(`[${run_id}] Filtros a aplicar:
-      - Departamento: ${departamento} (value: ${departamentos[departamento]})
-      - Objeto: ${objeto} (value: ${objetos[objeto]})
-      - Año: ${anioValue}`);
-
-    // 3️⃣ SETEAR FILTROS EN LA UI
-    // PrimeFaces NO permite selectOption() porque el <select> está oculto (display: none)
-    // Patrón correcto: Click en el contenedor visible + Click en la opción del panel abierto
-
-    // ⚠️ DEPARTAMENTO
-    if (departamentos[departamento]) {
-      console.log(`[${run_id}] Seteando Departamento a "${departamento}"...`);
-      try {
-        // Click en el contenedor del dropdown para abrir el panel
-        await page.click('#tbBuscador\\:idFormBuscarProceso\\:departamento');
-        // Esperar a que el panel se abra y sea visible
-        await page.waitForSelector('.ui-selectonemenu-panel', { visible: true, timeout: 5000 });
-        // Click en la opción por su texto dentro del panel
-        await page.click(`.ui-selectonemenu-panel li:has-text("${departamento}")`);
-        // Pausa para que PrimeFaces procese el cambio
-        await page.waitForTimeout(500);
-        console.log(`[${run_id}] ✓ Departamento seteado`);
-      } catch (err) {
-        console.warn(`[${run_id}] ⚠️ Error al setear Departamento:`, err.message);
-      }
+    // SETEAR DEPARTAMENTO
+    if (departamento) {
+      console.log(`[${run_id}] Seteando Departamento: ${departamento}`);
+      
+      // Click en el dropdown
+      await page.click('#tbBuscador\\:idFormBuscarProceso\\:departamento');
+      
+      // Esperar a que el panel sea visible
+      await page.waitForSelector('.ui-selectonemenu-panel:visible', { timeout: 5000 });
+      
+      // Esperar un poco para que el panel se renderice completamente
+      await page.waitForTimeout(300);
+      
+      // Click en la opción usando un selector más robusto
+      await page.click(`.ui-selectonemenu-panel:visible .ui-selectonemenu-item:has-text("${departamento}")`);
+      
+      await page.waitForTimeout(500);
+      console.log(`[${run_id}] ✓ Departamento seteado`);
     }
 
-    // ⚠️ OBJETO DE CONTRATACIÓN
-    if (objetos[objeto]) {
-      console.log(`[${run_id}] Seteando Objeto de Contratación a "${objeto}"...`);
-      try {
-        // Click en el contenedor del dropdown para abrir el panel
-        await page.click('#tbBuscador\\:idFormBuscarProceso\\:j_idt217');
-        // Esperar a que el panel se abra
-        await page.waitForSelector('.ui-selectonemenu-panel', { visible: true, timeout: 5000 });
-        // PrimeFaces muestra "Obra" (no "OBRA"), así que mapear correctamente
-        const textoOpcion = objeto === "OBRA" ? "Obra" : objeto === "BIEN" ? "Bien" : objeto === "SERVICIO" ? "Servicio" : objeto;
-        await page.click(`.ui-selectonemenu-panel li:has-text("${textoOpcion}")`);
-        await page.waitForTimeout(500);
-        console.log(`[${run_id}] ✓ Objeto de Contratación seteado`);
-      } catch (err) {
-        console.warn(`[${run_id}] ⚠️ Error al setear Objeto:`, err.message);
-      }
+    // SETEAR OBJETO
+    if (objeto) {
+      console.log(`[${run_id}] Seteando Objeto: ${objeto}`);
+      
+      await page.click('#tbBuscador\\:idFormBuscarProceso\\:j_idt217');
+      await page.waitForSelector('.ui-selectonemenu-panel:visible', { timeout: 5000 });
+      await page.waitForTimeout(300);
+      
+      // Normalizar el texto (SEACE usa "Obra" no "OBRA")
+      const objetoNormalizado = objeto.charAt(0).toUpperCase() + objeto.slice(1).toLowerCase();
+      
+      await page.click(`.ui-selectonemenu-panel:visible .ui-selectonemenu-item:has-text("${objetoNormalizado}")`);
+      await page.waitForTimeout(500);
+      console.log(`[${run_id}] ✓ Objeto seteado`);
     }
 
-    // ⚠️ AÑO DE CONVOCATORIA
-    if (anioValue) {
-      console.log(`[${run_id}] Seteando Año de Convocatoria a "${anioValue}"...`);
-      try {
-        // Click en el contenedor del dropdown para abrir el panel
-        await page.click('#tbBuscador\\:idFormBuscarProceso\\:anioConvocatoria');
-        // Esperar a que el panel se abra
-        await page.waitForSelector('.ui-selectonemenu-panel', { visible: true, timeout: 5000 });
-        // Click en la opción por su texto
-        await page.click(`.ui-selectonemenu-panel li:has-text("${anioValue}")`);
-        await page.waitForTimeout(500);
-        console.log(`[${run_id}] ✓ Año de Convocatoria seteado`);
-      } catch (err) {
-        console.warn(`[${run_id}] ⚠️ Error al setear Año:`, err.message);
-      }
+    // SETEAR AÑO
+    if (anio) {
+      console.log(`[${run_id}] Seteando Año: ${anio}`);
+      
+      await page.click('#tbBuscador\\:idFormBuscarProceso\\:anioConvocatoria');
+      await page.waitForSelector('.ui-selectonemenu-panel:visible', { timeout: 5000 });
+      await page.waitForTimeout(300);
+      
+      await page.click(`.ui-selectonemenu-panel:visible .ui-selectonemenu-item:has-text("${anio}")`);
+      await page.waitForTimeout(500);
+      console.log(`[${run_id}] ✓ Año seteado`);
     }
 
-    // 4️⃣ EJECUTAR BÚSQUEDA
-    // Ahora que los filtros están seteados, hacer click en "Buscar"
     console.log(`[${run_id}] Ejecutando búsqueda...`);
-    await page.click("text=Buscar");
+    
+    // Click en el botón de búsqueda (el token button que es visible)
+    await page.click('#tbBuscador\\:idFormBuscarProceso\\:btnBuscarSelToken');
+    
+    // Esperar a que comience el request AJAX (el overlay de bloqueo aparece)
+    await page.waitForTimeout(1000);
+    
+    // Esperar a que termine el AJAX (esperar a que desaparezca el blocker)
+    await page.waitForSelector('.ui-blockui-content', { state: 'hidden', timeout: 30000 }).catch(() => {
+      console.log(`[${run_id}] No se detectó blocker, continuando...`);
+    });
+    
+    // Esperar un poco más para asegurar que la tabla se actualice
+    await page.waitForTimeout(2000);
 
-    // 5️⃣ ESPERAR A QUE APAREZCAN FILAS REALES
-    // Usar waitForFunction para detectar filas por conteo, no por visibilidad
-    // (evita el timeout con elementos "hidden")
-    console.log(`[${run_id}] Esperando resultados...`);
-    await page.waitForFunction(() => {
-      const rows = document.querySelectorAll(
-        "#tbBuscador\\:idFormBuscarProceso\\:dtProcesos_data tr"
-      );
-      // Retornar true cuando haya al menos 1 fila
-      return rows.length > 0;
-    }, { timeout: 60000 });
+    // Esperar a que aparezcan filas en la tabla
+    console.log(`[${run_id}] Esperando resultados en la tabla...`);
+    
+    await page.waitForFunction(
+      () => {
+        const tbody = document.querySelector('tbody[id="tbBuscador:idFormBuscarProceso:dtProcesos_data"]');
+        if (!tbody) return false;
+        
+        const rows = tbody.querySelectorAll('tr');
+        // Verificar que haya filas Y que no sea solo el mensaje de "No se encontraron Datos"
+        return rows.length > 0 && !rows[0].classList.contains('ui-datatable-empty-message');
+      },
+      { timeout: 30000 }
+    );
 
     console.log(`[${run_id}] Resultados encontrados. Scrapeando...`);
 
-    // 6️⃣ SCRAPEAR DATOS DE LA TABLA
+    // Extraer datos de la tabla
     const items = await page.evaluate(() => {
-      const rows = document.querySelectorAll(
-        "#tbBuscador\\:idFormBuscarProceso\\:dtProcesos_data tr"
-      );
-
+      const tbody = document.querySelector('tbody[id="tbBuscador:idFormBuscarProceso:dtProcesos_data"]');
+      
+      if (!tbody) {
+        console.error('No se encontró el tbody');
+        return [];
+      }
+      
+      const rows = tbody.querySelectorAll('tr:not(.ui-datatable-empty-message)');
+      console.log(`Filas encontradas: ${rows.length}`);
+      
       const results = [];
 
       for (const row of rows) {
-        const cols = row.querySelectorAll("td");
+        const cols = row.querySelectorAll('td');
         
-        // Validar que la fila tenga suficientes columnas
-        if (cols.length < 7) continue;
+        if (cols.length < 7) {
+          console.warn('Fila con menos de 7 columnas, saltando');
+          continue;
+        }
 
-        // Extraer datos según posición de columnas
-        // Ajustar índices según estructura real de SEACE
-        results.push({
-          entidad: cols[1]?.innerText.trim() || "",
-          descripcion: cols[6]?.innerText.trim() || "",
-          nomenclatura: cols[3]?.innerText.trim() || ""
-        });
+        try {
+          const item = {
+            numero: cols[0]?.innerText?.trim() || "",
+            entidad: cols[1]?.innerText?.trim() || "",
+            fecha_publicacion: cols[2]?.innerText?.trim() || "",
+            nomenclatura: cols[3]?.innerText?.trim() || "",
+            reiniciado_desde: cols[4]?.innerText?.trim() || "",
+            objeto: cols[5]?.innerText?.trim() || "",
+            descripcion: cols[6]?.innerText?.trim() || ""
+          };
+          
+          results.push(item);
+        } catch (err) {
+          console.error('Error procesando fila:', err);
+        }
       }
 
       return results;
     });
 
-    console.log(`[${run_id}] Scraping completado. Items encontrados: ${items.length}`);
+    console.log(`[${run_id}] Scraping completado. Items: ${items.length}`);
 
-    // 7️⃣ CERRAR NAVEGADOR Y RESPONDER
     await browser.close();
 
     return res.json({
       run_id,
       items,
+      total: items.length,
       meta: {
         fuente: "SEACE",
         scraped_at: run_id,
@@ -203,42 +197,42 @@ app.post("/seace/export", async (req, res) => {
     });
 
   } catch (err) {
-    // 8️⃣ MANEJO DE ERRORES CON DEBUG
     console.error(`[${run_id}] Error durante scraping:`, err.message);
 
     let screenshotPath = null;
     let htmlPath = null;
 
     try {
-      // Crear directorio debug si no existe
       await fs.promises.mkdir("debug", { recursive: true });
 
       screenshotPath = `debug/${run_id}.png`;
       htmlPath = `debug/${run_id}.html`;
 
-      // Capturar screenshot de la página (para inspeccionar visualmente)
-      if (page && !page.isClosed && typeof page.screenshot === "function") {
-        await page.screenshot({ path: screenshotPath, fullPage: true });
-        console.log(`[${run_id}] Screenshot guardado en: ${screenshotPath}`);
-      }
-
-      // Capturar HTML completo (para inspeccionar estructura)
-      if (page && typeof page.content === "function") {
-        const html = await page.content();
-        await fs.promises.writeFile(htmlPath, html, "utf8");
-        console.log(`[${run_id}] HTML guardado en: ${htmlPath}`);
+      if (browser) {
+        const pages = browser.contexts()[0]?.pages() || [];
+        const page = pages[0];
+        
+        if (page && !page.isClosed()) {
+          await page.screenshot({ path: screenshotPath, fullPage: true });
+          console.log(`[${run_id}] Screenshot guardado: ${screenshotPath}`);
+          
+          const html = await page.content();
+          await fs.promises.writeFile(htmlPath, html, "utf8");
+          console.log(`[${run_id}] HTML guardado: ${htmlPath}`);
+        }
       }
     } catch (dbgErr) {
-      // Si falla la captura de debug, no sobreescribir el error original
-      console.error(`[${run_id}] Fallo al capturar debug:`, String(dbgErr));
+      console.error(`[${run_id}] Error capturando debug:`, dbgErr.message);
     }
 
-    await browser.close();
+    if (browser) {
+      await browser.close();
+    }
 
-    // Responder con error y rutas de debug
     return res.status(500).json({
       run_id,
-      error: String(err),
+      error: err.message,
+      stack: err.stack,
       debug: {
         screenshot: screenshotPath,
         html: htmlPath,
@@ -249,5 +243,5 @@ app.post("/seace/export", async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log("SEACE Runner running on port", PORT);
+  console.log(`SEACE Runner running on port ${PORT}`);
 });
