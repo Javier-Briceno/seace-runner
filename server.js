@@ -385,50 +385,256 @@ app.post("/seace/export", async (req, res) => {
     while (hasMorePages) {
       console.log(`[${run_id}] Scrapeando página ${currentPage}...`);
 
-      // Extraer datos de la página actual
-      const items = await page.evaluate(() => {
+      // Contar cuántos items hay en la página actual
+      const itemCount = await page.evaluate(() => {
         const tbody = document.querySelector('tbody[id="tbBuscador:idFormBuscarProceso:dtProcesos_data"]');
-        
-        if (!tbody) {
-          console.error('No se encontró el tbody');
-          return [];
-        }
-        
+        if (!tbody) return 0;
         const rows = tbody.querySelectorAll('tr:not(.ui-datatable-empty-message)');
-        console.log(`Filas encontradas: ${rows.length}`);
-        
-        const results = [];
-
-        for (const row of rows) {
-          const cols = row.querySelectorAll('td');
-          
-          if (cols.length < 7) {
-            console.warn('Fila con menos de 7 columnas, saltando');
-            continue;
-          }
-
-          try {
-            const item = {
-              numero: cols[0]?.innerText?.trim() || "",
-              entidad: cols[1]?.innerText?.trim() || "",
-              fecha_publicacion: cols[2]?.innerText?.trim() || "",
-              nomenclatura: cols[3]?.innerText?.trim() || "",
-              reiniciado_desde: cols[4]?.innerText?.trim() || "",
-              objeto: cols[5]?.innerText?.trim() || "",
-              descripcion: cols[6]?.innerText?.trim() || ""
-            };
-            
-            results.push(item);
-          } catch (err) {
-            console.error('Error procesando fila:', err);
-          }
-        }
-
-        return results;
+        return rows.length;
       });
 
-      console.log(`[${run_id}] Página ${currentPage}: ${items.length} items encontrados`);
-      allItems = allItems.concat(items);
+      console.log(`[${run_id}] Página ${currentPage}: ${itemCount} items encontrados`);
+
+      // Iterar sobre cada item de la página actual
+      for (let itemIndex = 0; itemIndex < itemCount; itemIndex++) {
+        console.log(`[${run_id}] Extrayendo item ${itemIndex + 1}/${itemCount} de página ${currentPage}...`);
+
+        // Extraer datos básicos del item desde la tabla
+        const basicItemData = await page.evaluate((index) => {
+          const tbody = document.querySelector('tbody[id="tbBuscador:idFormBuscarProceso:dtProcesos_data"]');
+          if (!tbody) {
+            console.error('[ERROR] No se encontró tbody de resultados');
+            return null;
+          }
+          
+          const row = tbody.querySelectorAll('tr:not(.ui-datatable-empty-message)')[index];
+          
+          if (!row) return null;
+          
+          const cols = row.querySelectorAll('td');
+          
+          return {
+            numero: cols[0]?.innerText?.trim() || "",
+            entidad: cols[1]?.innerText?.trim() || "",
+            fecha_publicacion: cols[2]?.innerText?.trim() || "",
+            nomenclatura: cols[3]?.innerText?.trim() || "",
+            reiniciado_desde: cols[4]?.innerText?.trim() || "",
+            objeto: cols[5]?.innerText?.trim() || "",
+            descripcion: cols[6]?.innerText?.trim() || ""
+          };
+        }, itemIndex);
+
+        if (!basicItemData) {
+          console.log(`[${run_id}] ⚠ Item ${itemIndex + 1} no se pudo extraer, saltando...`);
+          continue;
+        }
+
+        // Click en el botón "Ficha de Selección" del item actual
+        try {
+          // Hacer click en el link de ficha usando JavaScript directo
+          const clickResult = await page.evaluate((index) => {
+            const tbody = document.querySelector('tbody[id="tbBuscador:idFormBuscarProceso:dtProcesos_data"]');
+            const rows = tbody.querySelectorAll('tr:not(.ui-datatable-empty-message)');
+            const row = rows[index];
+            
+            if (row) {
+              // Buscar el link que contiene la imagen fichaSeleccion
+              const link = row.querySelector('a:has(img[src*="fichaSeleccion"])');
+              if (link) {
+                console.log(`[DEBUG] Link encontrado, ID: ${link.id}`);
+                link.click();
+                return { success: true, linkId: link.id };
+              }
+              
+              // Fallback: buscar el primer commandlink en la fila
+              const cmdLink = row.querySelector('a.ui-commandlink');
+              if (cmdLink) {
+                console.log(`[DEBUG] CommandLink encontrado, ID: ${cmdLink.id}`);
+                cmdLink.click();
+                return { success: true, linkId: cmdLink.id };
+              }
+            }
+            return { success: false };
+          }, itemIndex);
+          
+          console.log(`[${run_id}] Resultado del click en ficha:`, clickResult);
+          
+          if (!clickResult.success) {
+            throw new Error('No se pudo encontrar el link de ficha');
+          }
+          
+          // Esperar a que cargue la ficha (primero que exista, luego que sea visible)
+          await page.waitForFunction(() => {
+            return document.querySelector('#tbFicha\\:idFormFichaSeleccion') !== null;
+          }, { timeout: 10000 });
+          
+          console.log(`[${run_id}] ✓ Ficha detectada en DOM`);
+          
+          // Esperar a que sea visible
+          await page.waitForSelector('#tbFicha\\:idFormFichaSeleccion', { timeout: 10000 });
+          await page.waitForTimeout(1500);
+
+          console.log(`[${run_id}] ✓ Ficha cargada para item ${itemIndex + 1}`);
+
+          // Extraer información de la ficha (Convocatoria + Cronograma)
+          const fichaData = await page.evaluate(() => {
+            // Información General
+            const infoGeneral = {};
+            const infoGeneralTable = document.querySelector('#tbFicha\\:j_idt30');
+            if (infoGeneralTable) {
+              const rows = infoGeneralTable.querySelectorAll('tbody tr');
+              rows.forEach(row => {
+                const cells = row.querySelectorAll('td');
+                if (cells.length >= 2) {
+                  const label = cells[0]?.textContent?.trim().replace(':', '');
+                  const value = cells[1]?.textContent?.trim();
+                  if (label && value) {
+                    infoGeneral[label] = value;
+                  }
+                }
+              });
+            }
+
+            // Información de la Entidad
+            const infoEntidad = {};
+            const infoEntidadTable = document.querySelector('#tbFicha\\:j_idt73');
+            if (infoEntidadTable) {
+              const rows = infoEntidadTable.querySelectorAll('tbody tr');
+              rows.forEach(row => {
+                const cells = row.querySelectorAll('td');
+                if (cells.length >= 2) {
+                  const label = cells[0]?.textContent?.trim().replace(':', '');
+                  const value = cells[1]?.textContent?.trim();
+                  if (label && value) {
+                    infoEntidad[label] = value;
+                  }
+                }
+              });
+            }
+
+            // Información del Procedimiento
+            const infoProcedimiento = {};
+            const infoProcedimientoTable = document.querySelector('#tbFicha\\:j_idt97');
+            if (infoProcedimientoTable) {
+              const rows = infoProcedimientoTable.querySelectorAll('tbody tr');
+              rows.forEach(row => {
+                const cells = row.querySelectorAll('td');
+                if (cells.length >= 2) {
+                  const label = cells[0]?.textContent?.trim().replace(':', '');
+                  let value = cells[1]?.textContent?.trim();
+                  
+                  // Para "Lugar y cuenta de pago", extraer tabla interna
+                  if (label.includes('Lugar y cuenta de pago')) {
+                    const innerTable = cells[1].querySelector('table');
+                    if (innerTable) {
+                      const rows = innerTable.querySelectorAll('tr');
+                      const banco = rows[1]?.cells[0]?.textContent?.trim() || null;
+                      const cuenta = rows[1]?.cells[1]?.textContent?.trim() || null;
+                      value = { banco, cuenta };
+                    }
+                  }
+                  
+                  if (label) {
+                    infoProcedimiento[label] = value || null;
+                  }
+                }
+              });
+            }
+
+            // Cronograma
+            const cronograma = [];
+            const cronogramaTable = document.querySelector('#tbFicha\\:dtCronograma_data');
+            if (cronogramaTable) {
+              const rows = cronogramaTable.querySelectorAll('tr');
+              rows.forEach(row => {
+                const cells = row.querySelectorAll('td');
+                if (cells.length >= 3) {
+                  const etapaText = cells[0]?.textContent?.trim() || '';
+                  const etapaLines = etapaText.split('\n').map(l => l.trim()).filter(l => l);
+                  const etapa = etapaLines[0] || '';
+                  const tipo = etapaLines[1] || null;
+                  
+                  cronograma.push({
+                    etapa: etapa,
+                    tipo: tipo,
+                    fecha_inicio: cells[1]?.textContent?.trim() || null,
+                    fecha_fin: cells[2]?.textContent?.trim() || null
+                  });
+                }
+              });
+            }
+
+            return {
+              informacion_general: infoGeneral,
+              informacion_entidad: infoEntidad,
+              informacion_procedimiento: infoProcedimiento,
+              cronograma: cronograma
+            };
+          });
+
+          console.log(`[${run_id}] ✓ Datos de ficha extraídos`);
+
+          // Combinar datos básicos con datos de la ficha
+          const completeItemData = {
+            ...basicItemData,
+            ficha: fichaData
+          };
+
+          allItems.push(completeItemData);
+
+          // Click en botón "Regresar" usando JavaScript directo
+          await page.evaluate(() => {
+            const btn = document.querySelector('#tbFicha\\:j_idt22');
+            if (btn) {
+              btn.click();
+            }
+          });
+          
+          // Esperar a que la ficha desaparezca
+          await page.waitForFunction(() => {
+            const ficha = document.querySelector('#tbFicha\\:idFormFichaSeleccion');
+            return !ficha; // Esperar a que ya no exista la ficha
+          }, { timeout: 10000 });
+          
+          await page.waitForTimeout(500);
+
+          console.log(`[${run_id}] ✓ Volvió a la tabla de resultados`);
+
+        } catch (fichaError) {
+          console.error(`[${run_id}] ✗ Error extrayendo ficha del item ${itemIndex + 1}:`, fichaError.message);
+          
+          // Intentar volver a la tabla si estamos en la ficha
+          try {
+            const isInFicha = await page.$('#tbFicha\\:j_idt22');
+            if (isInFicha) {
+              // Hacer click usando JavaScript directo
+              await page.evaluate(() => {
+                const btn = document.querySelector('#tbFicha\\:j_idt22');
+                if (btn) btn.click();
+              });
+              
+              // Esperar a que desaparezca la ficha
+              await page.waitForFunction(() => {
+                const ficha = document.querySelector('#tbFicha\\:idFormFichaSeleccion');
+                return !ficha;
+              }, { timeout: 10000 }).catch(() => {
+                console.log(`[${run_id}] Timeout esperando a cerrar ficha`);
+              });
+              
+              await page.waitForTimeout(500);
+            }
+          } catch (e) {
+            console.error(`[${run_id}] No se pudo volver a la tabla:`, e.message);
+          }
+          
+          // Agregar item sin ficha
+          allItems.push({
+            ...basicItemData,
+            ficha: null,
+            error: fichaError.message
+          });
+        }
+      }
 
       // Verificar si hay botón "siguiente" habilitado
       const nextButtonDisabled = await page.evaluate(() => {
@@ -440,9 +646,14 @@ app.post("/seace/export", async (req, res) => {
         console.log(`[${run_id}] No hay más páginas. Total de páginas procesadas: ${currentPage}`);
         hasMorePages = false;
       } else {
-        // Click en el botón siguiente
+        // Click en el botón siguiente usando JavaScript directo
         console.log(`[${run_id}] Avanzando a la página ${currentPage + 1}...`);
-        await page.click('#tbBuscador\\:idFormBuscarProceso\\:dtProcesos_paginator_bottom .ui-paginator-next');
+        await page.evaluate(() => {
+          const nextBtn = document.querySelector('#tbBuscador\\:idFormBuscarProceso\\:dtProcesos_paginator_bottom .ui-paginator-next');
+          if (nextBtn) {
+            nextBtn.click();
+          }
+        });
         
         // Esperar a que la tabla se actualice
         await page.waitForTimeout(1500);
@@ -474,23 +685,6 @@ app.post("/seace/export", async (req, res) => {
         fuente: "SEACE",
         scraped_at: run_id,
         paginas_procesadas: currentPage,
-        filtros_aplicados: {
-          departamento,
-          objeto,
-          anio
-        }
-      }
-    });
-
-    await browser.close();
-
-    return res.json({
-      run_id,
-      items,
-      total: items.length,
-      meta: {
-        fuente: "SEACE",
-        scraped_at: run_id,
         filtros_aplicados: {
           departamento,
           objeto,
